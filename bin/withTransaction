@@ -22,7 +22,7 @@ printShortUsage()
 {
     # Note: short followed by long option; if the user knows the short one, she can
     # skim the long one.
-    printf 'Usage: %q %s\n' "$(basename "$1")" '-f|--transacted-file FILE [-l|--lock-file LOCK-FILE] [-r|--read-only] [--drop-argument ARG [...]] -c|--command COMMANDLINE [...]|[--] SIMPLECOMMAND [-?|-h|--help]'
+    printf 'Usage: %q %s\n' "$(basename "$1")" '-f|--transacted-file FILE [-l|--lock-file LOCK-FILE] [-r|--read-only|--rollback-on-failure] [--timeout SECONDS] [--transaction-timeout TX-TIMEOUT] [--silence-transaction-errors] [--drop-argument ARG [...]] -c|--command COMMANDLINE [...]|[--] SIMPLECOMMAND [-?|-h|--help]'
 }
 printUsage()
 {
@@ -53,6 +53,19 @@ HELPDESCRIPTION
     --read-only|-r
 		Allows simultaneous read access of multiple instances by
 		promising that COMMANDs will not modify the FILE.
+    --rollback-on-failure
+		If COMMAND fails, any writes to FILE will be
+		automatically undone.
+    --timeout SECONDS
+		Fail if the lock to check for / start a transaction cannot be
+		acquired within SECONDS (instead of waiting indefinitely)
+		(because another transaction is still active). 0 means fail
+		rather than wait if the lock cannot be acquired immediately.
+    --transaction-timeout TX-TIMEOUT
+		A transition is automatically aborted if more than TX-TIMEOUT
+		(default 3) seconds passed since --start-*-transaction.
+    --silence-transaction-errors
+		Don't print transaction-related errors.
     --drop-argument ARG
 		Remove ARG from SIMPLECOMMAND; this makes it possible for
 		clients to simply forward all of their given command-line
@@ -66,11 +79,11 @@ HELPDESCRIPTION
 
 EXIT STATUS:
     0	Complete success.
-    1	Failed to ...
     2	Bad invocation, wrong or missing command-line arguments.
-    3	Internal error or failed assertion.
-    4	Partial success ...
-
+    5	Time out while waiting to start a transaction.
+    6	The current transaction has taken too long (TX-TIMEOUT) and has been
+	aborted.
+    *   any exit status from COMMAND(s)
 Example:
 HELPTEXT
     printf '%q %s\n' "$(basename "$1")" '--foo bar /tmp/foobar'
@@ -88,6 +101,11 @@ HELPTEXT
 transactedFilespec=
 lockFilespec=
 mode=write
+isRollbackOnFailure=
+waitTimeout=
+transactionTimeout=3
+typeset -a lockControllerArgs=()
+isSilenceTransactionErrors=
 typeset -a dropArguments=()
 isNeedEval=
 typeset -a commands=()
@@ -99,6 +117,12 @@ do
 			shift; transactedFilespec="$1"; shift;;
 	--lock-file|-l)	shift; lockFilespec="$1"; shift;;
 	--read-only|-r)	shift; mode=read;;
+	--rollback-on-failure)
+			shift; isRollbackOnFailure=t;;
+	--timeout)	shift; waitTimeout="$1"; shift;;
+	--transaction-timeout)
+			shift; transactionTimeout="$1"; shift;;
+	--silence-transaction-errors)	isSilenceTransactionErrors=t; lockControllerArgs+=("$1"); shift;;
 	--drop-argument)
 			shift; dropArguments+=("$1"); shift;;
 	--command|-c)	shift; commands+=(${commands:+;} "$1"); isNeedEval=t; shift;;
@@ -133,6 +157,11 @@ if [ ${#commands[@]} -eq 0 ]; then
     echo
     printShortUsage "$0"
     exit 2
+elif [ "$isRollbackOnFailure" ] && [ "$mode" = read ]; then
+    echo 'ERROR: Cannot combine --rollback-on-failure with -r|--read-only.'
+    echo
+    printShortUsage "$0"
+    exit 2
 fi >&2
 
 if [ -z "$lockFilespec" ]; then
@@ -140,9 +169,56 @@ if [ -z "$lockFilespec" ]; then
     lockFilespec="${lockDirspec%/}/.$(basename -- "$transactedFilespec").lock"
 fi
 
-typeset -a interpolatedCommands=("${commands[@]//"$fileMarker"/$transactedFilespec}")
-if [ "$isNeedEval" ]; then
-    eval "${interpolatedCommands[@]}"
-else
-    "${interpolatedCommands[@]}"
-fi
+
+lockedCall()
+{
+    local method="${1:?}"; shift
+    flock "$@" --conflict-exit-code 5 ${waitTimeout:+--timeout "$waitTimeout"} "$lockFilespec" transactionalLockController "${lockControllerArgs[@]}" "$method" "$transactedFilespec" "$lockFilespec" "$transactionOwner" "$mode" "$transactionTimeout"
+}
+startTransaction()
+{
+    SECONDS=0
+    local error
+    while :
+    do
+	error="$(lockedCall TX-START)" || exit $?
+	[ ! "$error" ] && break
+
+	if [ -n "$NOW" -o \( -n "$waitTimeout" -a $SECONDS -ge ${waitTimeout:-0} \) ]; then
+	    [ "$isSilenceTransactionErrors" ] || printf >&2 '%s\n' "$error"
+	    exit 5
+	fi
+
+	sleep "${WITHTRANSACTION_BLOCK_DELAY:-0.01s}"
+    done
+}
+upgradeTransaction()
+{
+    lockedCall TX-UPGRADE
+}
+endTransaction()
+{
+    lockedCall TX-END
+}
+abortWriteTransaction()
+{
+    lockedCall TX-ABORT
+}
+checkTransaction()
+{
+    lockedCall TX-CHECK --shared
+}
+
+
+startTransaction || exit $?
+    typeset -a interpolatedCommands=("${commands[@]//"$fileMarker"/$transactedFilespec}")
+    if [ "$isNeedEval" ]; then
+	eval "${interpolatedCommands[@]}"
+    else
+	"${interpolatedCommands[@]}"
+    fi; status=$?
+    if [ $status -ne 0 ] && [ "$isRollbackOnFailure" ]; then
+	abortWriteTransaction || status=$?
+    fi
+endTransaction || status=$?
+exit $status
