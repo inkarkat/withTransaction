@@ -135,6 +135,11 @@ if [ ${#commands[@]} -eq 0 ]; then
     exit 2
 fi >&2
 
+if [ -z "$lockFilespec" ]; then
+    lockDirspec="$(dirname -- "$transactedFilespec")"
+    lockFilespec="${lockDirspec%/}/.$(basename -- "$transactedFilespec").lock"
+fi
+
 typeset -a interpolatedCommands=("${commands[@]//"$fileMarker"/$transactedFilespec}")
 if [ "$isNeedEval" ]; then
     eval "${interpolatedCommands[@]}"
