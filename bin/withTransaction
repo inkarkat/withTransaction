@@ -1,0 +1,143 @@
+#!/bin/bash
+###############################################################################
+##
+# FILE:		withTransaction
+# PRODUCT:	withTransaction
+# AUTHOR:	Ingo Karkat <ingo@karkat.de>
+# DATE CREATED:	21-Oct-2020
+#
+###############################################################################
+# CONTENTS:
+#   Execute a command on a file that is protected by a lock.
+#
+# REMARKS:
+#
+# @(#)withTransaction	$Id$	withTransaction
+###############################################################################
+
+: ${WITHTRANSACTION_FILE_MARKER:='{}'}
+fileMarker="$WITHTRANSACTION_FILE_MARKER"; unset WITHTRANSACTION_FILE_MARKER
+
+printShortUsage()
+{
+    # Note: short followed by long option; if the user knows the short one, she can
+    # skim the long one.
+    printf 'Usage: %q %s\n' "$(basename "$1")" '-f|--transacted-file FILE [-l|--lock-file LOCK-FILE] [-r|--read-only] [--drop-argument ARG [...]] -c|--command COMMANDLINE [...]|[--] SIMPLECOMMAND [-?|-h|--help]'
+}
+printUsage()
+{
+    # This is the short help when launched with no or incorrect arguments.
+    # It is printed to stderr to avoid accidental processing.
+    printShortUsage "$1" >&2
+    printf >&2 'Try %q --help for more information.\n' "$(basename "$1")"
+}
+printLongUsage()
+{
+    # This is the long "man page" when launched with the help argument.
+    # It is printed to stdout to allow paging with 'more'.
+    cat <<HELPDESCRIPTION
+Execute COMMANDs that work with FILE while its (cooperative) access is protected
+by a file lock, so only one instance can write to the file or multiple instances
+can simultaneously read from it.
+HELPDESCRIPTION
+    echo
+    printShortUsage "$1"
+    echo
+    cat <<HELPTEXT
+    --transacted-file|-f FILE
+		The file that is protected by the lock.
+    --lock-file|-l LOCK-FILE
+		The file used for locking and storing a copy of FILE contents
+		for rollback. Defaults to a hidden variant of FILE with a .lock
+		extension, in the same directory as FILE: ./.FILE.lock
+    --read-only|-r
+		Allows simultaneous read access of multiple instances by
+		promising that COMMANDs will not modify the FILE.
+    --drop-argument ARG
+		Remove ARG from SIMPLECOMMAND; this makes it possible for
+		clients to simply forward all of their given command-line
+		arguments and invoke themselves without having to filter out a
+		--transactional argument that enabled transactional handling in
+		the first place.
+    --command|-c "COMMANDLINE"
+		Execute the passed command line. When this is a simple command,
+		it can also be passed as such. {} is replaced with the
+		LOCK-FILE.
+
+EXIT STATUS:
+    0	Complete success.
+    1	Failed to ...
+    2	Bad invocation, wrong or missing command-line arguments.
+    3	Internal error or failed assertion.
+    4	Partial success ...
+
+Example:
+HELPTEXT
+    printf '%q %s\n' "$(basename "$1")" '--foo bar /tmp/foobar'
+}
+
+printUsage()
+{
+    cat <<HELPTEXT
+Execute COMMAND ...
+HELPTEXT
+    echo
+    printf 'Usage: %q %s\n' "$(basename "$1")" '-c|--command "COMMANDLINE" [-c ...] | [--] SIMPLECOMMAND [...] [-?|-h|--help]'
+}
+
+transactedFilespec=
+lockFilespec=
+mode=write
+typeset -a dropArguments=()
+isNeedEval=
+typeset -a commands=()
+while [ $# -ne 0 ]
+do
+    case "$1" in
+	--help|-h|-\?)	shift; printShortUsage "$0"; exit 0;;
+	--transacted-file|-f)
+			shift; transactedFilespec="$1"; shift;;
+	--lock-file|-l)	shift; lockFilespec="$1"; shift;;
+	--read-only|-r)	shift; mode=read;;
+	--drop-argument)
+			shift; dropArguments+=("$1"); shift;;
+	--command|-c)	shift; commands+=(${commands:+;} "$1"); isNeedEval=t; shift;;
+	--)		shift; break;;
+	-*)		{ echo "ERROR: Unknown option \"$1\"!"; echo; printShortUsage "$0"; } >&2; exit 2;;
+	*)		break;;
+    esac
+done
+if [ $# -ne 0 ]; then
+    if [ ${#dropArguments[@]} -eq 0 ]; then
+	typeset -a simpleCommand=("$@")
+    else
+	typeset -a simpleCommand=()
+	for arg
+	do
+	    contains "$arg" "${dropArguments[@]}" || simpleCommand+=("$arg")
+	done
+    fi
+
+    if [ "$isNeedEval" ]; then
+	# Combine --command and SIMPLECOMMAND; need to quote SIMPLECOMMAND to
+	# undo the effects of eval.
+	printf -v quotedSimpleCommand '%q ' "${simpleCommand[@]}"
+	printf -v escapedFileMarker %q "$fileMarker"
+	commands+=(${commands:+;} "${quotedSimpleCommand//"$escapedFileMarker"/$fileMarker}")	# %q escapes {}, we don't want that to have it interpolated later.
+    else
+	commands=("${simpleCommand[@]}")
+    fi
+fi
+if [ ${#commands[@]} -eq 0 ]; then
+    echo 'ERROR: No COMMAND(s) specified; need to pass -c|--command "COMMANDLINE", or SIMPLECOMMAND.'
+    echo
+    printShortUsage "$0"
+    exit 2
+fi >&2
+
+typeset -a interpolatedCommands=("${commands[@]//"$fileMarker"/$transactedFilespec}")
+if [ "$isNeedEval" ]; then
+    eval "${interpolatedCommands[@]}"
+else
+    "${interpolatedCommands[@]}"
+fi
