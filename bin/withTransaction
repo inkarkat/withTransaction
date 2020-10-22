@@ -22,7 +22,7 @@ printShortUsage()
 {
     # Note: short followed by long option; if the user knows the short one, she can
     # skim the long one.
-    printf 'Usage: %q %s\n' "$(basename "$1")" '-f|--transacted-file FILE [-l|--lock-file LOCK-FILE] [-r|--read-only|--rollback-on-failure] [--timeout SECONDS] [--transaction-timeout TX-TIMEOUT] [--silence-transaction-errors] [--drop-argument ARG [...]] -c|--command COMMANDLINE [...]|[--] SIMPLECOMMAND [-?|-h|--help]'
+    printf 'Usage: %q %s\n' "$(basename "$1")" '-f|--transacted-file FILE [-l|--lock-file LOCK-FILE] [-r|--read-only|--rollback-on-failure] [--timeout SECONDS] [--transaction-timeout TX-TIMEOUT] [--silence-transaction-errors] [--transaction-owner OWNER-ID] [--drop-argument ARG [...]] -c|--command COMMANDLINE [...]|[--] SIMPLECOMMAND [-?|-h|--help]'
 }
 printUsage()
 {
@@ -66,6 +66,8 @@ HELPDESCRIPTION
 		(default 3) seconds passed since --start-*-transaction.
     --silence-transaction-errors
 		Don't print transaction-related errors.
+    --transaction-owner OWNER-ID
+		Use OWNER-ID instead of the invoking script's PID.
     --drop-argument ARG
 		Remove ARG from SIMPLECOMMAND; this makes it possible for
 		clients to simply forward all of their given command-line
@@ -106,6 +108,7 @@ waitTimeout=
 transactionTimeout=3
 typeset -a lockControllerArgs=()
 isSilenceTransactionErrors=
+transactionOwner=$PPID
 typeset -a dropArguments=()
 isNeedEval=
 typeset -a commands=()
@@ -123,6 +126,8 @@ do
 	--transaction-timeout)
 			shift; transactionTimeout="$1"; shift;;
 	--silence-transaction-errors)	isSilenceTransactionErrors=t; lockControllerArgs+=("$1"); shift;;
+	--transaction-owner)
+			shift; transactionOwner="${1:?}"; shift;;
 	--drop-argument)
 			shift; dropArguments+=("$1"); shift;;
 	--command|-c)	shift; commands+=(${commands:+;} "$1"); isNeedEval=t; shift;;
@@ -161,6 +166,11 @@ elif [ "$isRollbackOnFailure" ] && [ "$mode" = read ]; then
     echo 'ERROR: Cannot combine --rollback-on-failure with -r|--read-only.'
     echo
     printShortUsage "$0"
+    exit 2
+elif [ "${transactionOwner:0:1}" = '*' ]; then
+    echo >&2 'ERROR: OWNER-ID must not start with *.'
+    echo >&2
+    printShortUsage "$0" >&2
     exit 2
 fi >&2
 
