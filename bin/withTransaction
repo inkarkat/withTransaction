@@ -23,6 +23,8 @@ printShortUsage()
     # Note: short followed by long option; if the user knows the short one, she can
     # skim the long one.
     printf 'Usage: %q %s\n' "$(basename "$1")" '-f|--transacted-file FILE [-l|--lock-file LOCK-FILE] [-r|--read-only|--rollback-on-failure] [--timeout SECONDS] [--transaction-timeout TX-TIMEOUT] [--silence-transaction-errors] [--transaction-owner OWNER-ID] [--drop-argument ARG [...]] -c|--command COMMANDLINE [...]|[--] SIMPLECOMMAND [-?|-h|--help]'
+    echo
+    printf 'Usage: %q %s\n' "$(basename "$1")" '--check [--timeout SECONDS]'
 }
 printUsage()
 {
@@ -78,6 +80,9 @@ HELPDESCRIPTION
 		Execute the passed command line. When this is a simple command,
 		it can also be passed as such. {} is replaced with the
 		LOCK-FILE.
+    --check	COMMANDs can invoke this to test whether the current transaction
+		(established by the outer $(basename "$1") call) is still valid
+		or whether it has already timed out.
 
 EXIT STATUS:
     0	Complete success.
@@ -91,6 +96,7 @@ HELPTEXT
     printf '%q %s\n' "$(basename "$1")" '--foo bar /tmp/foobar'
 }
 
+action=
 transactedFilespec=
 lockFilespec=
 mode=write
@@ -116,58 +122,62 @@ do
 	--timeout)	shift; waitTimeout="$1"; shift;;
 	--transaction-timeout)
 			shift; transactionTimeout="$1"; shift;;
-	--silence-transaction-errors)	isSilenceTransactionErrors=t; lockControllerArgs+=("$1"); shift;;
+	--silence-transaction-errors)
+			isSilenceTransactionErrors=t; lockControllerArgs+=("$1"); shift;;
 	--transaction-owner)
 			shift; transactionOwner="${1:?}"; shift;;
 	--drop-argument)
 			shift; dropArguments+=("$1"); shift;;
 	--command|-c)	shift; commands+=(${commands:+;} "$1"); isNeedEval=t; shift;;
+	--check)	shift; action=check;;
 	--)		shift; break;;
 	-*)		{ echo "ERROR: Unknown option \"$1\"!"; echo; printUsage "$0"; } >&2; exit 2;;
 	*)		break;;
     esac
 done
-if [ $# -ne 0 ]; then
-    if [ ${#dropArguments[@]} -eq 0 ]; then
-	typeset -a simpleCommand=("$@")
-    else
-	typeset -a simpleCommand=()
-	for arg
-	do
-	    contains "$arg" "${dropArguments[@]}" || simpleCommand+=("$arg")
-	done
-    fi
+if [ -z "$action" ]; then
+    if [ $# -ne 0 ]; then
+	if [ ${#dropArguments[@]} -eq 0 ]; then
+	    typeset -a simpleCommand=("$@")
+	else
+	    typeset -a simpleCommand=()
+	    for arg
+	    do
+		contains "$arg" "${dropArguments[@]}" || simpleCommand+=("$arg")
+	    done
+	fi
 
-    if [ "$isNeedEval" ]; then
-	# Combine --command and SIMPLECOMMAND; need to quote SIMPLECOMMAND to
-	# undo the effects of eval.
-	printf -v quotedSimpleCommand '%q ' "${simpleCommand[@]}"
-	printf -v escapedFileMarker %q "$fileMarker"
-	commands+=(${commands:+;} "${quotedSimpleCommand//"$escapedFileMarker"/$fileMarker}")	# %q escapes {}, we don't want that to have it interpolated later.
-    else
-	commands=("${simpleCommand[@]}")
+	if [ "$isNeedEval" ]; then
+	    # Combine --command and SIMPLECOMMAND; need to quote SIMPLECOMMAND to
+	    # undo the effects of eval.
+	    printf -v quotedSimpleCommand '%q ' "${simpleCommand[@]}"
+	    printf -v escapedFileMarker %q "$fileMarker"
+	    commands+=(${commands:+;} "${quotedSimpleCommand//"$escapedFileMarker"/$fileMarker}")	# %q escapes {}, we don't want that to have it interpolated later.
+	else
+	    commands=("${simpleCommand[@]}")
+	fi
     fi
-fi
-if [ ${#commands[@]} -eq 0 ]; then
-    echo 'ERROR: No COMMAND(s) specified; need to pass -c|--command "COMMANDLINE", or SIMPLECOMMAND.'
-    echo
-    printUsage "$0"
-    exit 2
-elif [ "$isRollbackOnFailure" ] && [ "$mode" = read ]; then
-    echo 'ERROR: Cannot combine --rollback-on-failure with -r|--read-only.'
-    echo
-    printUsage "$0"
-    exit 2
-elif [ "${transactionOwner:0:1}" = '*' ]; then
-    echo >&2 'ERROR: OWNER-ID must not start with *.'
-    echo >&2
-    printUsage "$0" >&2
-    exit 2
-fi >&2
+    if [ ${#commands[@]} -eq 0 ]; then
+	echo 'ERROR: No COMMAND(s) specified; need to pass -c|--command "COMMANDLINE", or SIMPLECOMMAND.'
+	echo
+	printUsage "$0"
+	exit 2
+    elif [ "$isRollbackOnFailure" ] && [ "$mode" = read ]; then
+	echo 'ERROR: Cannot combine --rollback-on-failure with -r|--read-only.'
+	echo
+	printUsage "$0"
+	exit 2
+    elif [ "${transactionOwner:0:1}" = '*' ]; then
+	echo >&2 'ERROR: OWNER-ID must not start with *.'
+	echo >&2
+	printUsage "$0" >&2
+	exit 2
+    fi >&2
 
-if [ -z "$lockFilespec" ]; then
-    lockDirspec="$(dirname -- "$transactedFilespec")"
-    lockFilespec="${lockDirspec%/}/.$(basename -- "$transactedFilespec").lock"
+    if [ -z "$lockFilespec" ]; then
+	lockDirspec="$(dirname -- "$transactedFilespec")"
+	lockFilespec="${lockDirspec%/}/.$(basename -- "$transactedFilespec").lock"
+    fi
 fi
 
 
@@ -211,7 +221,30 @@ checkTransaction()
 }
 
 
+case "$action" in
+    check)
+	if [ -z "$WITHTRANSACTION_TRANSACTED_FILESPEC" -o -z "$WITHTRANSACTION_LOCK_FILESPEC" -o -z "$WITHTRANSACTION_MODE" -o -z "$WITHTRANSACTION_OWNER" ]; then
+	    printf 'ERROR: Not within a transaction; --check can only be called by COMMANDs of a %s execution.\n' "$(basename "$0")"
+	    exit 2
+	fi >&2
+
+	transactedFilespec="$WITHTRANSACTION_TRANSACTED_FILESPEC"
+	lockFilespec="$WITHTRANSACTION_LOCK_FILESPEC"
+	mode="$WITHTRANSACTION_MODE"
+	transactionOwner="$WITHTRANSACTION_OWNER"
+
+	checkTransaction
+	exit $?
+	;;
+esac
+
 startTransaction || exit $?
+    export \
+	WITHTRANSACTION_TRANSACTED_FILESPEC="$transactedFilespec" \
+	WITHTRANSACTION_LOCK_FILESPEC="$lockFilespec" \
+	WITHTRANSACTION_MODE="$mode" \
+	WITHTRANSACTION_OWNER="$transactionOwner"
+
     typeset -a interpolatedCommands=("${commands[@]//"$fileMarker"/$transactedFilespec}")
     if [ "$isNeedEval" ]; then
 	eval "${interpolatedCommands[@]}"
