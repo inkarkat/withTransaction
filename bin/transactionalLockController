@@ -25,8 +25,8 @@ case "$1" in
     --silence-transaction-errors)	shift; errorPrintf() { :; };;
 esac
 method="${1:?}"; shift
-TABLE_FILESPEC="${1:?}"; shift
-LOCK_FILESPEC="${1:?}"; shift
+transactedFilespec="${1:?}"; shift
+lockFilespec="${1:?}"; shift
 thisTransactionOwner="${1:?}"; shift
 thisTransactionMode="${1:?}"; shift
 thisTransactionTimeout="${1?}"; shift
@@ -36,7 +36,7 @@ thisTransactionTimeout="${1?}"; shift
 
 existsLock()
 {
-    IFS=' ' read -r lockExpiry lockMode lockOwner < "$LOCK_FILESPEC"
+    IFS=' ' read -r lockExpiry lockMode lockOwner < "$lockFilespec"
 }
 isLockExpired()
 {
@@ -50,23 +50,23 @@ isLockExpired()
 }
 createLock()
 {
-    printf > "$LOCK_FILESPEC" '%s %s %s\n' "${thisTransactionExpiry:?}" "${thisTransactionMode:?}" "${thisTransactionOwner:?}"
-    if [ -e "$TABLE_FILESPEC" ]; then
-	cat -- "$TABLE_FILESPEC" >> "$LOCK_FILESPEC"
+    printf > "$lockFilespec" '%s %s %s\n' "${thisTransactionExpiry:?}" "${thisTransactionMode:?}" "${thisTransactionOwner:?}"
+    if [ -e "$transactedFilespec" ]; then
+	cat -- "$transactedFilespec" >> "$lockFilespec"
     fi
 }
 rollback()
 {
-    local recordLen="$(head -n 1 -- "$LOCK_FILESPEC" | wc --bytes)"
-    if cmp --silent --ignore-initial="${recordLen}:0" "$LOCK_FILESPEC" "$TABLE_FILESPEC"; then
+    local recordLen="$(head -n 1 -- "$lockFilespec" | wc --bytes)"
+    if cmp --silent --ignore-initial="${recordLen}:0" "$lockFilespec" "$transactedFilespec"; then
 	return 99
     else
-	tail -n +2 "$LOCK_FILESPEC" > "$TABLE_FILESPEC"
+	tail -n +2 "$lockFilespec" > "$transactedFilespec"
     fi
 }
 removeLock()
 {
-    > "$LOCK_FILESPEC"
+    > "$lockFilespec"
 }
 isSharedOwnership()
 {
