@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 
+load fixture
+
 @test "no arguments prints message and usage instructions" {
-    run withTransaction
+    run withTransaction --transacted-file "$FILE"
     [ $status -eq 2 ]
     [[ "${lines[0]}" =~ ^"ERROR: No COMMAND(s) specified" ]]
     [ "${lines[2]%% *}" = 'Usage:' ]
