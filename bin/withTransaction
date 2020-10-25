@@ -65,7 +65,7 @@ HELPDESCRIPTION
 		rather than wait if the lock cannot be acquired immediately.
     --transaction-timeout TX-TIMEOUT
 		A transition is automatically aborted if more than TX-TIMEOUT
-		(default 3) seconds passed since --start-*-transaction.
+		(default 3) seconds passed since the invocation of COMMANDs.
     --silence-transaction-errors
 		Don't print transaction-related errors.
     --transaction-owner OWNER-ID
