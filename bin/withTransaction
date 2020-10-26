@@ -273,6 +273,7 @@ startTransaction || exit $?
     fi; status=$?
     if [ $status -ne 0 ] && [ "$isRollbackOnFailure" ]; then
 	abortWriteTransaction || status=$?
+	exit $status
     fi
 endTransaction || status=$?
 exit $status
