@@ -12,6 +12,10 @@ setup()
     fixtureSetup
 }
 
+assert_empty_file()
+{
+    [ ! -s "$FILE" ]
+}
 assert_file()
 {
     [ "$(cat -- "$FILE")" = "${1?}" ]
