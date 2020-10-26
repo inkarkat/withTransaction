@@ -18,7 +18,10 @@ assert_empty_file()
 }
 assert_file()
 {
-    [ "$(cat -- "$FILE")" = "${1?}" ]
+    if [ "$(cat -- "$FILE")" != "${1?}" ]; then
+	dump_file
+	return 1
+    fi
 }
 dump_file()
 {
