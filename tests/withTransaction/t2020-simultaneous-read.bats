@@ -16,11 +16,12 @@ first"
 
 @test "second and third readonly invocations while another is still running proceeds immediately" {
     withTransaction --transacted-file "$FILE" --read-only --transaction-owner first -c 'sleep 2; echo first >> {}' &
+    sleep 0.1
     withTransaction --transacted-file "$FILE" --read-only --transaction-owner second -c 'sleep 1; echo second >> {}' &
     sleep 0.1
     run withTransaction --transacted-file "$FILE" --read-only -c 'echo third >> {}'
     [ $status -eq 0 ]
-    [ "$output" = "" ]
+    [ "$output" = "" ] || { echo "$output" | prefix \# >&3; }
     wait
 
     assert_file "third
