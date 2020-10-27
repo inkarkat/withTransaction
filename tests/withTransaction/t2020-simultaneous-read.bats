@@ -21,7 +21,7 @@ first"
     sleep 0.1
     run withTransaction --transacted-file "$FILE" --read-only -c 'echo third >> {}'
     [ $status -eq 0 ]
-    [ "$output" = "" ] || { echo "$output" | prefix \# >&3; }
+    [ "$output" = "" ]
     wait
 
     assert_file "third
