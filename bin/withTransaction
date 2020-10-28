@@ -24,7 +24,7 @@ printShortUsage()
     # skim the long one.
     printf 'Usage: %q %s\n' "$(basename "$1")" '-f|--transacted-file FILE [-l|--lock-file LOCK-FILE] [-r|--read-only|--rollback-on-failure] [--timeout SECONDS] [--transaction-timeout TX-TIMEOUT] [--silence-transaction-errors] [--transaction-owner OWNER-ID] [--drop-argument ARG [...]] -c|--command COMMANDLINE [...]|[--] SIMPLECOMMAND [-?|-h|--help]'
     echo
-    printf 'Usage: %q %s\n' "$(basename "$1")" '--check|--upgrade-to-write-transaction [--timeout SECONDS]'
+    printf 'Usage: %q %s\n' "$(basename "$1")" '--check|--upgrade-to-write-transaction [--timeout SECONDS] [--transaction-timeout TX-TIMEOUT] [--silence-transaction-errors]'
 }
 printUsage()
 {
