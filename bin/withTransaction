@@ -15,7 +15,7 @@
 # @(#)withTransaction	$Id$	withTransaction
 ###############################################################################
 
-: ${WITHTRANSACTION_FILE_MARKER:='{}'}
+: ${WITHTRANSACTION_FILE_MARKER='{}'}
 fileMarker="$WITHTRANSACTION_FILE_MARKER"; unset WITHTRANSACTION_FILE_MARKER
 
 printShortUsage()
@@ -78,8 +78,8 @@ HELPDESCRIPTION
 		the first place.
     --command|-c "COMMANDLINE"
 		Execute the passed command line. When this is a simple command,
-		it can also be passed as such. {} is replaced with the
-		LOCK-FILE.
+		it can also be passed as such.${fileMarker:+ $fileMarker is replaced with the
+		LOCK-FILE.}
     --check	COMMANDs can invoke this to test whether the current transaction
 		(established by the outer $(basename "$1") call) is still valid
 		or whether it has already timed out.
