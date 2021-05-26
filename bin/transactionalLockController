@@ -17,11 +17,22 @@
 set -o noglob
 shopt -qs extglob
 
+printUsage()
+{
+    cat <<HELPTEXT
+Lock handling (including shared read lock ownership) via a separate
+LOCK_FILESPEC controlling access to TRANSACTED-FILESPEC.
+HELPTEXT
+    echo
+    printf 'Usage: flock --conflict-exit-code 5 [--timeout WAIT_TIMEOUT] LOCK_FILESPEC %q %s\n' "$(basename "$1")" '[--silence-transaction-errors] TX-START|TX-UPGRADE|TX-END|TX-ABORT|TX-CHECK TRANSACTED-FILESPEC LOCK-FILESPEC OWNER read|write TX-TIMEOUT [-?|-h|--help]'
+}
+
 errorPrintf()
 {
     printf >&2 "ERROR: ${1:?}" "${@:2}"
 }
 case "$1" in
+    --help|-h|-\?)			shift; printUsage "$0"; exit 0;;
     --silence-transaction-errors)	shift; errorPrintf() { :; };;
 esac
 method="${1:?}"; shift
