@@ -25,5 +25,5 @@ assert_file()
 }
 dump_file()
 {
-    cat -- "$FILE" | prefix \# >&3
+    prefix '#' "$FILE" >&3
 }
