@@ -113,7 +113,6 @@ typeset -a lockControllerArgs=()
 isSilenceTransactionErrors=
 transactionOwner=$PPID
 typeset -a dropArguments=()
-isNeedEval=
 typeset -a commands=()
 while [ $# -ne 0 ]
 do
@@ -134,7 +133,7 @@ do
 			shift; transactionOwner="${1:?}"; shift;;
 	--drop-argument)
 			shift; dropArguments+=("$1"); shift;;
-	--command|-c)	shift; commands+=(${commands:+;} "$1"); isNeedEval=t; shift;;
+	--command|-c)	shift; commands+=(${commands:+;} "$1"); shift;;
 	--check|--upgrade-to-write-transaction)
 			action="$1"; shift;;
 	--)		shift; break;;
@@ -166,15 +165,11 @@ case "$action" in
 		done
 	    fi
 
-	    if [ "$isNeedEval" ]; then
-		# Combine --command and SIMPLECOMMAND; need to quote SIMPLECOMMAND to
-		# undo the effects of eval.
-		printf -v quotedSimpleCommand '%q ' "${simpleCommand[@]}"
-		printf -v escapedFileMarker %q "$fileMarker"
-		commands+=(${commands:+;} "${quotedSimpleCommand//"$escapedFileMarker"/$fileMarker}")	# %q escapes {}, we don't want that to have it interpolated later.
-	    else
-		commands=("${simpleCommand[@]}")
-	    fi
+	    # Combine --command and SIMPLECOMMAND; need to quote SIMPLECOMMAND to
+	    # undo the effects of eval.
+	    printf -v quotedSimpleCommand '%q ' "${simpleCommand[@]}"
+	    printf -v escapedFileMarker %q "$fileMarker"
+	    commands+=(${commands:+;} "${quotedSimpleCommand//"$escapedFileMarker"/$fileMarker}")	# %q escapes {}, we don't want that to have it interpolated later.
 	fi
 	if [ -z "$transactedFilespec" ]; then
 	    echo 'ERROR: Missing -f|--transacted-file FILE.'
@@ -266,11 +261,7 @@ startTransaction || exit $?
 	WITHTRANSACTION_OWNER="$transactionOwner"
 
     typeset -a interpolatedCommands=("${commands[@]//"$fileMarker"/$transactedFilespec}")
-    if [ "$isNeedEval" ]; then
-	eval "${interpolatedCommands[@]}"
-    else
-	"${interpolatedCommands[@]}"
-    fi; status=$?
+    eval "${interpolatedCommands[@]}"; status=$?
     if [ $status -ne 0 ] && [ "$isRollbackOnFailure" ]; then
 	abortWriteTransaction || status=$?
 	exit $status
