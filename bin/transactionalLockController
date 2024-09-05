@@ -17,24 +17,51 @@
 set -o noglob
 shopt -qs extglob
 
+printShortUsage()
+{
+    # Note: short followed by long option; if the user knows the short one, she can
+    # skim the long one.
+    printf 'Usage: flock --conflict-exit-code 5 [--timeout WAIT_TIMEOUT] LOCK_FILESPEC %q %s\n' "$(basename "$1")" '[--silence-transaction-errors] TX-START|TX-UPGRADE|TX-END|TX-ABORT|TX-CHECK TRANSACTED-FILESPEC LOCK-FILESPEC OWNER read|write TX-TIMEOUT [-?|-h|--help]'
+}
 printUsage()
 {
-    cat <<HELPTEXT
+    # This is the short help when launched with no or incorrect arguments.
+    # It is printed to stderr to avoid accidental processing.
+    printShortUsage "$1" >&2
+    printf >&2 '\nTry %q --help for more information.\n' "$(basename "$1")"
+}
+printLongUsage()
+{
+    # This is the long "man page" when launched with the help argument.
+    # It is printed to stdout to allow paging with 'more'.
+    cat <<HELPDESCRIPTION
 Lock handling (including shared read lock ownership) via a separate
 LOCK_FILESPEC controlling access to TRANSACTED-FILESPEC.
-HELPTEXT
+HELPDESCRIPTION
     echo
-    printf 'Usage: flock --conflict-exit-code 5 [--timeout WAIT_TIMEOUT] LOCK_FILESPEC %q %s\n' "$(basename "$1")" '[--silence-transaction-errors] TX-START|TX-UPGRADE|TX-END|TX-ABORT|TX-CHECK TRANSACTED-FILESPEC LOCK-FILESPEC OWNER read|write TX-TIMEOUT [-?|-h|--help]'
+    printShortUsage "$1"
+    echo
+    cat <<HELPTEXT
+    --silence-transaction-errors
+			Suppress error messages around existing or timed out
+			transactions.
+HELPTEXT
 }
 
 errorPrintf()
 {
     printf >&2 "ERROR: ${1:?}" "${@:2}"
 }
-case "$1" in
-    --help|-h|-\?)			shift; printUsage "$0"; exit 0;;
-    --silence-transaction-errors)	shift; errorPrintf() { :; };;
-esac
+while [ $# -ne 0 ]
+do
+    case "$1" in
+	--help|-h|-\?)	shift; printLongUsage "$0"; exit 0;;
+	--silence-transaction-errors)
+			shift; errorPrintf() { :; };;
+	TX-*)		break;;
+	*)		{ echo "ERROR: Missing TX-*."; echo; printUsage "$0"; } >&2; exit 2;;
+    esac
+done
 method="${1:?}"; shift
 transactedFilespec="${1:?}"; shift
 lockFilespec="${1:?}"; shift
