@@ -21,7 +21,7 @@ printShortUsage()
 {
     # Note: short followed by long option; if the user knows the short one, she can
     # skim the long one.
-    printf 'Usage: flock --conflict-exit-code 5 [--timeout WAIT_TIMEOUT] LOCK_FILESPEC %q %s\n' "$(basename "$1")" '[--silence-transaction-errors] TX-START|TX-UPGRADE|TX-END|TX-ABORT|TX-CHECK TRANSACTED-FILESPEC LOCK-FILESPEC OWNER read|write TX-TIMEOUT [-?|-h|--help]'
+    printf 'Usage: flock --conflict-exit-code 5 [--timeout WAIT_TIMEOUT] LOCK_FILESPEC %q %s\n' "$(basename "$1")" '[--silence-transaction-errors] [--rewrite] TX-START|TX-UPGRADE|TX-END|TX-ABORT|TX-CHECK TRANSACTED-FILESPEC LOCK-FILESPEC OWNER read|write TX-TIMEOUT [-?|-h|--help]'
 }
 printUsage()
 {
@@ -45,6 +45,11 @@ HELPDESCRIPTION
     --silence-transaction-errors
 			Suppress error messages around existing or timed out
 			transactions.
+    --rewrite		On TX-ABORT, completely re-write the transacted file
+			(but with original file attributes preserved) with the
+			stored snapshot, thereby breaking any hard links.
+			(By default, the same file is just truncated and
+			overwritten.)
 HELPTEXT
 }
 
@@ -52,12 +57,14 @@ errorPrintf()
 {
     printf >&2 "ERROR: ${1:?}" "${@:2}"
 }
+isRewrite=
 while [ $# -ne 0 ]
 do
     case "$1" in
 	--help|-h|-\?)	shift; printLongUsage "$0"; exit 0;;
 	--silence-transaction-errors)
 			shift; errorPrintf() { :; };;
+	--rewrite)	shift; isRewrite=t;;
 	TX-*)		break;;
 	*)		{ echo "ERROR: Missing TX-*."; echo; printUsage "$0"; } >&2; exit 2;;
     esac
@@ -93,13 +100,24 @@ createLock()
 	cat -- "$transactedFilespec" >> "$lockFilespec"
     fi
 }
+restoreSnapshotTo()
+{
+    tail -n +2 "$lockFilespec" > "${1:?}"
+}
 rollback()
 {
     local recordLen="$(head -n 1 -- "$lockFilespec" | wc --bytes)"
     if cmp --silent --ignore-initial="${recordLen}:0" "$lockFilespec" "$transactedFilespec"; then
 	return 99
+    elif [ "$isRewrite" ]; then
+	# To break
+	local tempFilespec="${transactedFilespec}~"
+	rm --force -- "$tempFilespec" \
+	    && cp --attributes-only -- "$transactedFilespec" "$tempFilespec" \
+	    && restoreSnapshotTo "$tempFilespec" \
+	    && mv -- "$tempFilespec" "$transactedFilespec"
     else
-	tail -n +2 "$lockFilespec" > "$transactedFilespec"
+	restoreSnapshotTo "$transactedFilespec"
     fi
 }
 removeLock()

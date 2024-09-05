@@ -69,6 +69,10 @@ HELPDESCRIPTION
 		(default 3) seconds passed since the invocation of COMMANDs.
     --silence-transaction-errors
 		Don't print transaction-related errors.
+    --rewrite	On rollback, completely re-write the FILE (but with original
+		file attributes preserved) with the stored snapshot, thereby
+		breaking any hard links. (By default, the same file is just
+		truncated and overwritten.)
     --transaction-owner OWNER-ID
 		Use OWNER-ID instead of the invoking script's PID.
     --drop-argument ARG
@@ -130,6 +134,7 @@ do
 			shift; transactionTimeout="$1"; shift;;
 	--silence-transaction-errors)
 			isSilenceTransactionErrors=t; lockControllerArgs+=("$1"); shift;;
+	--rewrite)	lockControllerArgs+=("$1"); shift;;
 	--transaction-owner)
 			shift; transactionOwner="${1:?}"; shift;;
 	--drop-argument)
