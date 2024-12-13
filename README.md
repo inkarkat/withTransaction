@@ -11,3 +11,7 @@ This small tool decorates existing command(s) that work on a single text file (a
 * Bash
 * `flock` for transaction support
 * automated testing is done with _bats - Bash Automated Testing System_ (https://github.com/bats-core/bats-core)
+
+### Installation
+
+* The `./bin` subdirectory is supposed to be added to `PATH`.
