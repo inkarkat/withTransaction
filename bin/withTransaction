@@ -107,6 +107,16 @@ HELPTEXT
     printf '%q %s\n' "$(basename "$1")" '-f /tmp/pingtimes -c "ping -c 4 localhost >> {}"'
 }
 
+contains()
+{
+    local elem needle="$1"; shift
+    for elem
+    do
+	[ "$needle" = "$elem" ] && return 0
+    done
+    return 1
+}
+
 action=
 transactedFilespec=
 lockFilespec=
